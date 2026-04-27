@@ -262,7 +262,7 @@ function LoginPage({ onLogin }) {
         <button className={`login-btn ${loading ? "loading" : ""}`} onClick={handleLogin} disabled={loading}>
           {loading ? <><span className="login-spinner" /> Verifying...</> : "Sign In →"}
         </button>
-        <p className="login-hint">Matric No: <strong>SWE/2023/000</strong> · Password: <strong>password</strong></p>
+        <p className="login-hint">Matric No: <strong>SWE/2023/000</strong> · Password: <strong>'your name'</strong></p>
       </div>
     </div>
   );
