@@ -1,5 +1,23 @@
 import { useState, useEffect, useRef } from "react";
 
+/* ─── EMAILJS CONFIG ─────────────────────────────────────────────────────── */
+// SETUP GUIDE (frontend-safe, free):
+// 1. Go to https://www.emailjs.com → create FREE account
+// 2. Email Services → Add Service → Gmail → copy the SERVICE_ID
+// 3. Email Templates → Create Template → add these variables in the template body:
+//    Subject: Your Devcore ID Card, {{to_name}}
+//    Body HTML: <p>Hello {{to_name}},</p><p>Your approved Devcore ID card:</p>
+//               <img src="{{card_image}}" style="max-width:500px;border-radius:12px"/>
+// 4. Copy TEMPLATE_ID from the template page
+// 5. Account → API Keys → copy PUBLIC_KEY
+// Then replace the three strings below:
+const EMAILJS_PUBLIC_KEY  = "YOUR_PUBLIC_KEY";   // ← replace
+const EMAILJS_SERVICE_ID  = "YOUR_SERVICE_ID";   // ← replace
+const EMAILJS_TEMPLATE_ID = "YOUR_TEMPLATE_ID";  // ← replace
+
+/* ─── ROLES ─────────────────────────────────────────────────────────────── */
+const ROLES = ["Senior Dev", "Junior Dev", "Full Stack Dev", "Front End Dev", "Back End Dev"];
+
 /* ─────────────────────────── MOCK STUDENT DB ─────────────────────────── */
 const STUDENTS_BASE = [
   { matric: "SWE/2023/050", password: "Iyanuoluwa", name: "Light", initials: "AD", isAdmin: true },
@@ -178,6 +196,13 @@ function loadCardRequests() {
 function saveCardRequests(r) {
   try { localStorage.setItem("devcore_cards", JSON.stringify(r)); } catch {}
 }
+/* NEW: registered users (students not in STUDENTS_BASE) */
+function loadRegisteredUsers() {
+  try { return JSON.parse(localStorage.getItem("devcore_registered") || "[]"); } catch { return []; }
+}
+function saveRegisteredUsers(u) {
+  try { localStorage.setItem("devcore_registered", JSON.stringify(u)); } catch {}
+}
 
 /* ─────────────────────────── HOOKS ─────────────────────────── */
 function useInView(threshold = 0.1) {
@@ -191,23 +216,201 @@ function useInView(threshold = 0.1) {
   return [ref, inView];
 }
 
+/* ─── Load EmailJS from CDN (safe, no npm install needed) ─────────────── */
+function useEmailJS() {
+  const [ready, setReady] = useState(!!window.emailjs);
+  useEffect(() => {
+    if (window.emailjs) { setReady(true); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
+    s.onload = () => {
+      if (window.emailjs && EMAILJS_PUBLIC_KEY !== "YOUR_PUBLIC_KEY") {
+        window.emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+      }
+      setReady(true);
+    };
+    document.head.appendChild(s);
+  }, []);
+  return ready;
+}
+
+/* ─────────────────────────── REGISTER PAGE ─────────────────────────── */
+function RegisterPage({ onBack }) {
+  const [fullName, setFullName]     = useState("");
+  const [matric, setMatric]         = useState("");
+  const [password, setPassword]     = useState("");
+  const [confirm, setConfirm]       = useState("");
+  const [showPass, setShowPass]     = useState(false);
+  const [error, setError]           = useState("");
+  const [success, setSuccess]       = useState(false);
+  const [loading, setLoading]       = useState(false);
+  const [focused, setFocused]       = useState("");
+
+  const handleRegister = () => {
+    setError("");
+    if (!fullName.trim() || !matric.trim() || !password || !confirm) {
+      setError("All fields are required."); return;
+    }
+    if (password !== confirm) {
+      setError("Passwords do not match."); return;
+    }
+    if (password.length < 4) {
+      setError("Password must be at least 4 characters."); return;
+    }
+    const trimMatric = matric.trim().toUpperCase();
+    // check duplicates in STUDENTS_BASE
+    if (STUDENTS_BASE.some(s => s.matric.toUpperCase() === trimMatric)) {
+      setError("This matric number already exists. Please sign in instead."); return;
+    }
+    // check duplicates in already-registered
+    const existing = loadRegisteredUsers();
+    if (existing.some(s => s.matric.toUpperCase() === trimMatric)) {
+      setError("This matric number is already registered. Please sign in."); return;
+    }
+    setLoading(true);
+    setTimeout(() => {
+      const initials = fullName.trim().split(" ").map(w => w[0]).join("").toUpperCase().slice(0,3);
+      const newUser = { matric: trimMatric, password, name: fullName.trim(), initials, isRegistered: true };
+      saveRegisteredUsers([...existing, newUser]);
+      setLoading(false);
+      setSuccess(true);
+    }, 900);
+  };
+
+  if (success) {
+    return (
+      <div className="login-root">
+        <div className="login-bg-grid" />
+        <div className="login-glow" />
+        <div className="login-card" style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>🎉</div>
+          <div style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: "1.2rem", color: "var(--gold)", marginBottom: "0.5rem" }}>Registration Successful!</div>
+          <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: "1.5rem" }}>
+            Your account has been created. You can now sign in with your matric number and password.
+          </p>
+          <button className="login-btn" onClick={onBack}>← Go to Sign In</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="login-root">
+      <div className="login-bg-grid" />
+      <div className="login-glow" />
+      <div className="login-card">
+        <div className="login-brand">
+          <div className="login-logo">DC</div>
+          <div>
+            <div className="login-brand-name">DEVCORE</div>
+            <div className="login-brand-sub">OAU · Software Engineering · 2023</div>
+          </div>
+        </div>
+        <div className="login-divider" />
+        <h2 className="login-title">Create Account ✨</h2>
+        <p className="login-desc">Register to join the Devcore portal as a new member.</p>
+
+        <div className={`login-field ${focused === "name" ? "focused" : ""}`}>
+          <label className="field-label">Full Name</label>
+          <div className="field-input-wrap">
+            <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            <input className="field-input" type="text" placeholder="e.g. Adebayo Fortune"
+              value={fullName} onChange={e => setFullName(e.target.value)}
+              onFocus={() => setFocused("name")} onBlur={() => setFocused("")}
+              onKeyDown={e => e.key === "Enter" && handleRegister()} />
+          </div>
+        </div>
+
+        <div className={`login-field ${focused === "matric" ? "focused" : ""}`}>
+          <label className="field-label">Matric Number</label>
+          <div className="field-input-wrap">
+            <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+            <input className="field-input" type="text" placeholder="e.g. SWE/2024/099"
+              value={matric} onChange={e => setMatric(e.target.value)}
+              onFocus={() => setFocused("matric")} onBlur={() => setFocused("")}
+              onKeyDown={e => e.key === "Enter" && handleRegister()} />
+          </div>
+        </div>
+
+        <div className={`login-field ${focused === "pass" ? "focused" : ""}`}>
+          <label className="field-label">Password</label>
+          <div className="field-input-wrap">
+            <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input className="field-input" type={showPass ? "text" : "password"} placeholder="Choose a password"
+              value={password} onChange={e => setPassword(e.target.value)}
+              onFocus={() => setFocused("pass")} onBlur={() => setFocused("")}
+              onKeyDown={e => e.key === "Enter" && handleRegister()} />
+            <button className="field-eye" onClick={() => setShowPass(!showPass)} tabIndex={-1}>
+              {showPass
+                ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
+            </button>
+          </div>
+        </div>
+
+        <div className={`login-field ${focused === "confirm" ? "focused" : ""}`}>
+          <label className="field-label">Confirm Password</label>
+          <div className="field-input-wrap">
+            <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M9 12l2 2 4-4"/><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input className="field-input" type={showPass ? "text" : "password"} placeholder="Repeat your password"
+              value={confirm} onChange={e => setConfirm(e.target.value)}
+              onFocus={() => setFocused("confirm")} onBlur={() => setFocused("")}
+              onKeyDown={e => e.key === "Enter" && handleRegister()} />
+          </div>
+        </div>
+
+        {error && (
+          <div className="login-error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            {error}
+          </div>
+        )}
+
+        <button className={`login-btn ${loading ? "loading" : ""}`} onClick={handleRegister} disabled={loading}>
+          {loading ? <><span className="login-spinner" /> Registering...</> : "Create Account →"}
+        </button>
+
+        <button onClick={onBack} style={{ width: "100%", background: "none", border: "1px solid var(--border)", borderRadius: 10, padding: "12px", fontFamily: "var(--mono)", fontSize: "0.8rem", color: "var(--muted)", cursor: "pointer", transition: "all 0.2s" }}>
+          ← Back to Sign In
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────── LOGIN PAGE ─────────────────────────── */
 function LoginPage({ onLogin }) {
-  const [matric, setMatric] = useState("");
+  const [matric, setMatric]     = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [focused, setFocused] = useState("");
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [focused, setFocused]   = useState("");
+  const [showRegister, setShowRegister] = useState(false);
+
+  if (showRegister) return <RegisterPage onBack={() => setShowRegister(false)} />;
 
   const handleLogin = () => {
     setError("");
     if (!matric || !password) { setError("Please fill in all fields."); return; }
     setLoading(true);
     setTimeout(() => {
-      const student = STUDENTS_BASE.find(
-        s => s.matric.toLowerCase() === matric.trim().toLowerCase() && s.password === password
-      );
+      const profs = loadProfiles();
+      // 1. Check STUDENTS_BASE
+      let student = STUDENTS_BASE.find(s => s.matric.toLowerCase() === matric.trim().toLowerCase());
+      if (student) {
+        const effectivePwd = profs[student.matric]?.password || student.password;
+        if (effectivePwd !== password) student = null;
+      }
+      // 2. If not found, check registered users
+      if (!student) {
+        const registered = loadRegisteredUsers();
+        const reg = registered.find(s => s.matric.toLowerCase() === matric.trim().toLowerCase());
+        if (reg) {
+          const effectivePwd = profs[reg.matric]?.password || reg.password;
+          if (effectivePwd === password) student = reg;
+        }
+      }
       if (student) { onLogin(student); }
       else { setError("Invalid matric number or password. Try again."); setLoading(false); }
     }, 1200);
@@ -263,21 +466,312 @@ function LoginPage({ onLogin }) {
           {loading ? <><span className="login-spinner" /> Verifying...</> : "Sign In →"}
         </button>
         <p className="login-hint">Matric No: <strong>SWE/2023/000</strong> · Password: <strong>'name'</strong></p>
+        <div className="login-divider" style={{ marginTop: "1rem" }} />
+        <p style={{ textAlign: "center", color: "var(--muted)", fontSize: "0.82rem", marginTop: "1rem" }}>
+          Not in the database?{" "}
+          <button onClick={() => setShowRegister(true)} style={{ background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontFamily: "var(--mono)", fontSize: "0.82rem", fontWeight: 700, padding: 0 }}>
+            Register here →
+          </button>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── ID CARD MODAL ─────────────────────────── */
+function IDCardModal({ cardData, onClose }) {
+  // cardData: { name, matric, role, email, photo }
+  const canvasRef      = useRef(null);
+  const [cardPhoto, setCardPhoto]   = useState(cardData.photo || "");
+  const [emailStatus, setEmailStatus] = useState(""); // "sending" | "sent" | "error" | ""
+  const [emailMsg, setEmailMsg]     = useState("");
+  const ejsReady = useEmailJS();
+
+  // Draw the ID card onto canvas
+  const drawCard = (photoImg) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = 600, H = 340;
+    canvas.width = W; canvas.height = H;
+
+    // Background
+    const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+    bgGrad.addColorStop(0, "#080c10");
+    bgGrad.addColorStop(1, "#0d1520");
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grid pattern
+    ctx.strokeStyle = "rgba(255,255,255,0.03)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 30) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 30) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    // Gold left accent bar
+    const barGrad = ctx.createLinearGradient(0, 0, 0, H);
+    barGrad.addColorStop(0, "#f5a623");
+    barGrad.addColorStop(1, "#d4870a");
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(0, 0, 5, H);
+
+    // Green glow at bottom-left
+    const glow = ctx.createRadialGradient(80, H, 0, 80, H, 200);
+    glow.addColorStop(0, "rgba(26,71,49,0.5)");
+    glow.addColorStop(1, "transparent");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    // Card border
+    ctx.strokeStyle = "rgba(245,166,35,0.18)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
+
+    // Top header area
+    ctx.fillStyle = "rgba(245,166,35,0.06)";
+    ctx.fillRect(0, 0, W, 56);
+
+    // DEVCORE text top-left
+    ctx.fillStyle = "#f5a623";
+    ctx.font = "bold 13px 'Space Mono', monospace";
+    ctx.fillText("DEVCORE", 22, 26);
+    ctx.fillStyle = "rgba(232,237,242,0.35)";
+    ctx.font = "10px 'Space Mono', monospace";
+    ctx.fillText("OAU · SOFTWARE ENGINEERING · 2023", 22, 42);
+
+    // MEMBER ID CARD label top-right
+    ctx.fillStyle = "rgba(245,166,35,0.7)";
+    ctx.font = "bold 9px 'Space Mono', monospace";
+    ctx.textAlign = "right";
+    ctx.fillText("MEMBER ID CARD", W - 20, 26);
+    ctx.fillStyle = "rgba(232,237,242,0.25)";
+    ctx.font = "9px 'Space Mono', monospace";
+    ctx.fillText("RAIN SEMESTER 2024/2025", W - 20, 40);
+    ctx.textAlign = "left";
+
+    // Photo circle
+    const photoX = 55, photoY = 100, photoR = 58;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(photoX + photoR, photoY + photoR, photoR, 0, Math.PI * 2);
+    ctx.clip();
+    if (photoImg) {
+      ctx.drawImage(photoImg, photoX, photoY, photoR * 2, photoR * 2);
+    } else {
+      // Placeholder avatar
+      ctx.fillStyle = "linear-gradient(135deg, #1a4731, #2d7a4f)";
+      ctx.fillStyle = "#1a4731";
+      ctx.fillRect(photoX, photoY, photoR * 2, photoR * 2);
+      ctx.fillStyle = "#f5a623";
+      ctx.font = `bold ${photoR * 0.6}px 'Space Mono', monospace`;
+      ctx.textAlign = "center";
+      ctx.fillText((cardData.name || "??").split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2), photoX + photoR, photoY + photoR + photoR * 0.22);
+      ctx.textAlign = "left";
+    }
+    ctx.restore();
+
+    // Photo border ring
+    ctx.strokeStyle = "#f5a623";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(photoX + photoR, photoY + photoR, photoR + 3, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Name
+    const textX = 200;
+    ctx.fillStyle = "#e8edf2";
+    ctx.font = `bold 22px 'Outfit', 'Space Mono', monospace`;
+    const name = cardData.name || "—";
+    ctx.fillText(name.length > 22 ? name.slice(0, 21) + "…" : name, textX, 125);
+
+    // Matric
+    ctx.fillStyle = "#f5a623";
+    ctx.font = "12px 'Space Mono', monospace";
+    ctx.fillText(cardData.matric || "—", textX, 150);
+
+    // Role badge
+    if (cardData.role) {
+      const roleText = cardData.role.toUpperCase();
+      const rolePad = 14;
+      ctx.font = "bold 10px 'Space Mono', monospace";
+      const roleW = ctx.measureText(roleText).width + rolePad * 2;
+      ctx.fillStyle = "rgba(0,255,136,0.12)";
+      ctx.beginPath();
+      ctx.roundRect(textX, 162, roleW, 22, 6);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,255,136,0.3)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(textX, 162, roleW, 22, 6);
+      ctx.stroke();
+      ctx.fillStyle = "#00ff88";
+      ctx.fillText(roleText, textX + rolePad, 177);
+    }
+
+    // Email
+    if (cardData.email) {
+      ctx.fillStyle = "rgba(232,237,242,0.3)";
+      ctx.font = "10px 'Space Mono', monospace";
+      ctx.fillText(cardData.email, textX, cardData.role ? 205 : 172);
+    }
+
+    // Bottom bar
+    ctx.fillStyle = "rgba(245,166,35,0.08)";
+    ctx.fillRect(0, H - 48, W, 48);
+    ctx.strokeStyle = "rgba(245,166,35,0.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, H - 48); ctx.lineTo(W, H - 48); ctx.stroke();
+
+    // Bottom text
+    ctx.fillStyle = "rgba(232,237,242,0.25)";
+    ctx.font = "9px 'Space Mono', monospace";
+    ctx.fillText("This card is the property of Devcore · OAU Software Engineering Community", 22, H - 27);
+    ctx.fillStyle = "rgba(245,166,35,0.5)";
+    ctx.textAlign = "right";
+    ctx.fillText("devcore.oau.ng", W - 20, H - 27);
+    ctx.textAlign = "left";
+
+    // DC logo bottom-right area
+    ctx.fillStyle = "#f5a623";
+    ctx.font = "bold 14px 'Space Mono', monospace";
+    ctx.textAlign = "right";
+    ctx.fillText("DC", W - 20, H - 14);
+    ctx.textAlign = "left";
+  };
+
+  useEffect(() => {
+    if (!cardPhoto) { drawCard(null); return; }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload  = () => drawCard(img);
+    img.onerror = () => drawCard(null);
+    img.src = cardPhoto;
+  }, [cardPhoto, cardData]);
+
+  const handlePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setCardPhoto(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleDownload = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement("a");
+    link.download = `devcore-id-${(cardData.matric || "card").replace(/\//g, "-")}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  };
+
+  const handleSendEmail = async () => {
+    if (!cardData.email) { setEmailMsg("No email address on file for this card."); setEmailStatus("error"); return; }
+    if (EMAILJS_PUBLIC_KEY === "YOUR_PUBLIC_KEY") {
+      setEmailMsg("EmailJS not configured yet. See EMAILJS CONFIG comments at top of App.jsx.");
+      setEmailStatus("error"); return;
+    }
+    if (!ejsReady || !window.emailjs) { setEmailMsg("EmailJS still loading, please try again."); setEmailStatus("error"); return; }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const imageData = canvas.toDataURL("image/png");
+    setEmailStatus("sending"); setEmailMsg("");
+    try {
+      await window.emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+        to_name: cardData.name,
+        to_email: cardData.email,
+        card_image: imageData,
+      });
+      setEmailStatus("sent"); setEmailMsg(`✅ Card sent to ${cardData.email}!`);
+    } catch (err) {
+      setEmailStatus("error"); setEmailMsg("Failed to send. Check EmailJS config & template.");
+      console.error("EmailJS error:", err);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "var(--surface)", border: "1px solid rgba(245,166,35,0.2)",
+        borderRadius: 20, padding: "2rem", width: "min(680px, 96vw)",
+        maxHeight: "92vh", overflowY: "auto", position: "relative",
+        animation: "fadeIn 0.25s ease"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+          <div>
+            <div style={{ fontFamily: "var(--mono)", fontWeight: 700, fontSize: "1rem", color: "var(--text)" }}>🪪 Member ID Card</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--muted)", marginTop: 3 }}>Preview · Customize · Download</div>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>✕</button>
+        </div>
+
+        {/* Photo upload row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: "1.25rem", padding: "12px 16px", background: "var(--surface2)", borderRadius: 12, border: "1px solid var(--border)" }}>
+          <span style={{ fontFamily: "var(--mono)", fontSize: "0.72rem", color: "var(--muted)" }}>Card Photo:</span>
+          <label style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: 8, padding: "7px 14px", fontFamily: "var(--mono)", fontSize: "0.72rem", color: "var(--gold)", cursor: "pointer" }}>
+            📷 Upload Photo
+            <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ display: "none" }} />
+          </label>
+          {cardPhoto && (
+            <button onClick={() => setCardPhoto("")} style={{ background: "rgba(255,80,80,0.1)", border: "1px solid rgba(255,80,80,0.2)", borderRadius: 8, padding: "7px 12px", fontFamily: "var(--mono)", fontSize: "0.7rem", color: "#ff8080", cursor: "pointer" }}>
+              Remove
+            </button>
+          )}
+          <span style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--muted)", marginLeft: "auto" }}>
+            {cardData.role && <span style={{ color: "#00ff88" }}>Role: {cardData.role}</span>}
+          </span>
+        </div>
+
+        {/* Canvas preview */}
+        <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(245,166,35,0.15)", marginBottom: "1.25rem" }}>
+          <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "auto" }} />
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={handleDownload} style={{ flex: 1, minWidth: 140, background: "var(--gold)", color: "#080c10", border: "none", borderRadius: 10, padding: "13px 20px", fontFamily: "var(--mono)", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", transition: "opacity 0.2s" }}>
+            ⬇ Download PNG
+          </button>
+          <button onClick={handleSendEmail} disabled={emailStatus === "sending" || emailStatus === "sent"}
+            style={{ flex: 1, minWidth: 140, background: emailStatus === "sent" ? "rgba(0,255,136,0.15)" : "rgba(245,166,35,0.1)", color: emailStatus === "sent" ? "#00ff88" : "var(--gold)", border: `1px solid ${emailStatus === "sent" ? "rgba(0,255,136,0.3)" : "rgba(245,166,35,0.3)"}`, borderRadius: 10, padding: "13px 20px", fontFamily: "var(--mono)", fontSize: "0.82rem", fontWeight: 700, cursor: emailStatus === "sending" || emailStatus === "sent" ? "not-allowed" : "pointer", opacity: emailStatus === "sending" ? 0.7 : 1 }}>
+            {emailStatus === "sending" ? "⏳ Sending…" : emailStatus === "sent" ? "✅ Sent!" : "📧 Send to Email"}
+          </button>
+        </div>
+
+        {emailMsg && (
+          <div style={{ marginTop: 10, padding: "10px 14px", borderRadius: 8, background: emailStatus === "error" ? "rgba(255,80,80,0.1)" : "rgba(0,255,136,0.1)", border: `1px solid ${emailStatus === "error" ? "rgba(255,80,80,0.2)" : "rgba(0,255,136,0.2)"}`, fontFamily: "var(--mono)", fontSize: "0.72rem", color: emailStatus === "error" ? "#ff8080" : "#00ff88" }}>
+            {emailMsg}
+          </div>
+        )}
+
+        {EMAILJS_PUBLIC_KEY === "YOUR_PUBLIC_KEY" && (
+          <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 8, background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.15)", fontFamily: "var(--mono)", fontSize: "0.68rem", color: "rgba(245,166,35,0.7)", lineHeight: 1.6 }}>
+            ⚡ EmailJS not set up yet. To enable email sending: fill in EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID at the top of App.jsx. Free account at emailjs.com
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 /* ─────────────────────────── PROFILE MODAL ─────────────────────────── */
-function ProfileModal({ user, profiles, onSave, onClose, cardRequests, onRequestCard }) {
+function ProfileModal({ user, profiles, onSave, onSavePassword, onClose, cardRequests, onRequestCard, onOpenIDCard }) {
   const profile = profiles[user.matric] || {};
   const [displayName, setDisplayName] = useState(profile.displayName || user.name);
-  const [initials, setInitials] = useState(profile.initials || user.initials);
-  const [photoUrl, setPhotoUrl] = useState(profile.photoUrl || user.photo || "");
-  const [photoInput, setPhotoInput] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [cardEmail, setCardEmail] = useState(profile.email || "");
+  const [initials, setInitials]       = useState(profile.initials || user.initials);
+  const [photoUrl, setPhotoUrl]       = useState(profile.photoUrl || user.photo || "");
+  const [photoInput, setPhotoInput]   = useState("");
+  const [saved, setSaved]             = useState(false);
+  const [cardEmail, setCardEmail]     = useState(profile.email || "");
   const [showEmailInput, setShowEmailInput] = useState(true);
+
+  // Change password state
+  const [showChangePwd, setShowChangePwd] = useState(false);
+  const [curPwd, setCurPwd]           = useState("");
+  const [newPwd, setNewPwd]           = useState("");
+  const [confirmPwd, setConfirmPwd]   = useState("");
+  const [pwdError, setPwdError]       = useState("");
+  const [pwdSuccess, setPwdSuccess]   = useState(false);
 
   const myRequest = cardRequests.find(r => r.matric === user.matric);
 
@@ -295,7 +789,19 @@ function ProfileModal({ user, profiles, onSave, onClose, cardRequests, onRequest
     reader.readAsDataURL(file);
   };
 
-  const avatarBg = (profile.initials || user.initials || "??").slice(0,2).toUpperCase();
+  const handleChangePwd = () => {
+    setPwdError(""); setPwdSuccess(false);
+    // Determine effective current password
+    const effectivePwd = profiles[user.matric]?.password || user.password;
+    if (!curPwd) { setPwdError("Enter your current password."); return; }
+    if (curPwd !== effectivePwd) { setPwdError("Current password is incorrect."); return; }
+    if (!newPwd || newPwd.length < 4) { setPwdError("New password must be at least 4 characters."); return; }
+    if (newPwd !== confirmPwd) { setPwdError("New passwords do not match."); return; }
+    onSavePassword(newPwd);
+    setPwdSuccess(true);
+    setCurPwd(""); setNewPwd(""); setConfirmPwd("");
+    setTimeout(() => { setPwdSuccess(false); setShowChangePwd(false); }, 3000);
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -342,6 +848,7 @@ function ProfileModal({ user, profiles, onSave, onClose, cardRequests, onRequest
           <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px", fontFamily: "var(--mono)", fontSize: "0.75rem", color: "var(--muted)" }}>
             <span style={{ color: "var(--gold)" }}>Matric:</span> {user.matric}
             {user.isAdmin && <span style={{ marginLeft: 12, color: "#f5a623", background: "rgba(245,166,35,0.15)", padding: "2px 8px", borderRadius: 4, fontSize: "0.65rem" }}>⚡ ADMIN</span>}
+            {profile.role && <span style={{ marginLeft: 10, color: "#00ff88", background: "rgba(0,255,136,0.1)", padding: "2px 8px", borderRadius: 4, fontSize: "0.65rem" }}>{profile.role}</span>}
           </div>
         </div>
 
@@ -349,11 +856,25 @@ function ProfileModal({ user, profiles, onSave, onClose, cardRequests, onRequest
         <div className="card-request-section">
           <h3 className="card-section-title">🪪 Member ID Card</h3>
           {myRequest ? (
-            <div className={`card-status card-status-${myRequest.status}`}>
-              {myRequest.status === "pending" && `⏳ Card request pending — admin will review soon. Confirmation to: ${myRequest.email || "your email"}`}
-              {myRequest.status === "approved" && `✅ Card approved! Check ${myRequest.email || "your email"}.`}
-              {myRequest.status === "rejected" && "❌ Card request was declined. Contact admin."}
-            </div>
+            <>
+              <div className={`card-status card-status-${myRequest.status}`}>
+                {myRequest.status === "pending" && `⏳ Card request pending — admin will review soon. Confirmation to: ${myRequest.email || "your email"}`}
+                {myRequest.status === "approved" && `✅ Card approved! Ready to download.`}
+                {myRequest.status === "rejected" && "❌ Card request was declined. Contact admin."}
+              </div>
+              {myRequest.status === "approved" && (
+                <button onClick={() => onOpenIDCard({
+                  name: displayName || user.name,
+                  matric: user.matric,
+                  role: profile.role || myRequest.role || "",
+                  email: myRequest.email || profile.email || "",
+                  photo: photoUrl || user.photo || "",
+                })}
+                  style={{ marginTop: 12, width: "100%", background: "rgba(0,255,136,0.1)", border: "1px solid rgba(0,255,136,0.25)", borderRadius: 10, padding: "13px", fontFamily: "var(--mono)", fontSize: "0.82rem", color: "#00ff88", fontWeight: 700, cursor: "pointer", transition: "all 0.2s" }}>
+                  📥 Open &amp; Download My ID Card
+                </button>
+              )}
+            </>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div>
@@ -361,15 +882,11 @@ function ProfileModal({ user, profiles, onSave, onClose, cardRequests, onRequest
                 <div style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--bg)", border: `1px solid ${cardEmail && cardEmail.includes("@") ? "rgba(0,255,136,0.35)" : "var(--border)"}`, borderRadius: 10, padding: "0 14px", transition: "border-color 0.2s" }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" width="15" height="15" style={{ color: "var(--muted)", flexShrink: 0 }}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
                   <input
-                    type="email"
-                    placeholder="yourname@gmail.com"
-                    value={cardEmail}
+                    type="email" placeholder="yourname@gmail.com" value={cardEmail}
                     onChange={e => setCardEmail(e.target.value)}
                     style={{ flex: 1, background: "none", border: "none", outline: "none", fontFamily: "var(--mono)", fontSize: "0.82rem", color: "var(--text)", padding: "12px 0", letterSpacing: "0.02em" }}
                   />
-                  {cardEmail && cardEmail.includes("@") && (
-                    <span style={{ color: "#00ff88", fontSize: "0.75rem" }}>✓</span>
-                  )}
+                  {cardEmail && cardEmail.includes("@") && <span style={{ color: "#00ff88", fontSize: "0.75rem" }}>✓</span>}
                 </div>
               </div>
               <button
@@ -387,6 +904,36 @@ function ProfileModal({ user, profiles, onSave, onClose, cardRequests, onRequest
           )}
         </div>
 
+        {/* Change Password section */}
+        <div style={{ marginTop: 20, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+          <button onClick={() => { setShowChangePwd(!showChangePwd); setPwdError(""); setPwdSuccess(false); }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--mono)", fontSize: "0.75rem", color: "var(--muted)", display: "flex", alignItems: "center", gap: 6, padding: 0, marginBottom: showChangePwd ? 14 : 0 }}>
+            🔐 Change Password {showChangePwd ? "▲" : "▼"}
+          </button>
+          {showChangePwd && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {[
+                { label: "Current Password", value: curPwd, setter: setCurPwd, placeholder: "Enter current password" },
+                { label: "New Password", value: newPwd, setter: setNewPwd, placeholder: "At least 4 characters" },
+                { label: "Confirm New Password", value: confirmPwd, setter: setConfirmPwd, placeholder: "Repeat new password" },
+              ].map(({ label, value, setter, placeholder }) => (
+                <div key={label} className="login-field" style={{ marginBottom: 0 }}>
+                  <label className="field-label">{label}</label>
+                  <div className="field-input-wrap">
+                    <svg className="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <input className="field-input" type="password" value={value} onChange={e => setter(e.target.value)} placeholder={placeholder} />
+                  </div>
+                </div>
+              ))}
+              {pwdError && <div className="login-error" style={{ margin: 0 }}>{pwdError}</div>}
+              {pwdSuccess && <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(0,255,136,0.1)", border: "1px solid rgba(0,255,136,0.2)", fontFamily: "var(--mono)", fontSize: "0.72rem", color: "#00ff88" }}>✅ Password updated successfully!</div>}
+              <button onClick={handleChangePwd} style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: 10, padding: "11px", fontFamily: "var(--mono)", fontSize: "0.78rem", color: "var(--gold)", fontWeight: 700, cursor: "pointer" }}>
+                Update Password
+              </button>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
           <button className="modal-cancel" onClick={onClose}>Cancel</button>
           <button className="login-btn" style={{ flex: 1, marginBottom: 0 }} onClick={handleSave}>
@@ -399,22 +946,39 @@ function ProfileModal({ user, profiles, onSave, onClose, cardRequests, onRequest
 }
 
 /* ─────────────────────────── ADMIN PANEL ─────────────────────────── */
-function AdminPanel({ cardRequests, onApprove, onReject, onClose, profiles }) {
-  const [activeTab, setActiveTab] = useState("overview");
+function AdminPanel({ cardRequests, onApprove, onReject, onClose, profiles, onSetRole, onOpenIDCard }) {
+  const [activeTab, setActiveTab]     = useState("overview");
   const [searchQuery, setSearchQuery] = useState("");
-  const pending = cardRequests.filter(r => r.status === "pending");
-  const done = cardRequests.filter(r => r.status !== "pending");
+  // Local role selections for pending card requests (before approving)
+  const [pendingRoles, setPendingRoles] = useState({});
+  // Role assignments for members tab
+  const [memberRoles, setMemberRoles] = useState({});
 
-  const filteredStudents = STUDENTS_BASE.filter(s =>
+  const registeredUsers = loadRegisteredUsers();
+  const allMembers = [
+    ...STUDENTS_BASE,
+    ...registeredUsers.filter(r => !STUDENTS_BASE.some(s => s.matric === r.matric)),
+  ];
+
+  const pending = cardRequests.filter(r => r.status === "pending");
+  const done    = cardRequests.filter(r => r.status !== "pending");
+
+  const filteredStudents = allMembers.filter(s =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     s.matric.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const tabs = [
-    { id: "overview", label: "Overview", icon: "◈" },
-    { id: "cards", label: `Card Requests${pending.length > 0 ? ` (${pending.length})` : ""}`, icon: "🪪" },
+    { id: "overview", label: "Overview",   icon: "◈" },
+    { id: "cards",   label: `Card Requests${pending.length > 0 ? ` (${pending.length})` : ""}`, icon: "🪪" },
     { id: "members", label: "All Members", icon: "👥" },
   ];
+
+  const roleSelectStyle = {
+    background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8,
+    padding: "6px 10px", fontFamily: "var(--mono)", fontSize: "0.68rem", color: "var(--text)",
+    cursor: "pointer", outline: "none", minWidth: 130,
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)", zIndex: 200, display: "flex", alignItems: "stretch", justifyContent: "flex-end" }} onClick={onClose}>
@@ -439,7 +1003,7 @@ function AdminPanel({ cardRequests, onApprove, onReject, onClose, profiles }) {
           {/* Stats row */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
             {[
-              { label: "Total Members", value: STUDENTS_BASE.length, color: "var(--gold)" },
+              { label: "Total Members", value: allMembers.length, color: "var(--gold)" },
               { label: "Card Requests", value: cardRequests.length, color: "#00e5ff" },
               { label: "Pending", value: pending.length, color: "#f5a623" },
               { label: "Approved", value: cardRequests.filter(r => r.status === "approved").length, color: "#00ff88" },
@@ -492,7 +1056,7 @@ function AdminPanel({ cardRequests, onApprove, onReject, onClose, profiles }) {
               <div style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--gold)", letterSpacing: "0.15em", marginBottom: "1rem", marginTop: "0.5rem" }}>// QUICK ACTIONS</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                 {[
-                  { label: "View All Members", sub: `${STUDENTS_BASE.length} registered`, action: () => setActiveTab("members"), icon: "👥" },
+                  { label: "View All Members", sub: `${allMembers.length} registered`, action: () => setActiveTab("members"), icon: "👥" },
                   { label: "Card Requests", sub: `${cardRequests.length} total`, action: () => setActiveTab("cards"), icon: "🪪" },
                 ].map(a => (
                   <button key={a.label} onClick={a.action} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "1rem 1.25rem", cursor: "pointer", textAlign: "left", transition: "border-color 0.2s" }}>
@@ -511,17 +1075,44 @@ function AdminPanel({ cardRequests, onApprove, onReject, onClose, profiles }) {
               <div style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--gold)", letterSpacing: "0.15em", marginBottom: "1.25rem" }}>// PENDING REQUESTS ({pending.length})</div>
               {pending.length === 0 && <div style={{ color: "var(--muted)", fontSize: "0.85rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "1.25rem", textAlign: "center", marginBottom: 16 }}>No pending requests 🎉</div>}
               {pending.map(req => (
-                <div key={req.matric} style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "1rem 1.25rem", background: "var(--surface)", border: "1px solid rgba(245,166,35,0.15)", borderRadius: 12, marginBottom: "0.75rem" }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 10, background: "rgba(245,166,35,0.1)", color: "var(--gold)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--mono)", fontSize: "0.9rem", fontWeight: 700, flexShrink: 0 }}>{(req.initials || "??").slice(0,2)}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, color: "var(--text)", fontSize: "0.9rem" }}>{req.name}</div>
-                    <div style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--muted)" }}>{req.matric}</div>
-                    {req.email && <div style={{ fontFamily: "var(--mono)", fontSize: "0.63rem", color: "var(--gold)", marginTop: 2, opacity: 0.8 }}>📧 {req.email}</div>}
-                    <div style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--muted)", marginTop: 2 }}>Requested: {req.date}</div>
+                <div key={req.matric} style={{ padding: "1rem 1.25rem", background: "var(--surface)", border: "1px solid rgba(245,166,35,0.15)", borderRadius: 12, marginBottom: "0.75rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "0.75rem" }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 10, background: "rgba(245,166,35,0.1)", color: "var(--gold)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--mono)", fontSize: "0.9rem", fontWeight: 700, flexShrink: 0 }}>{(req.initials || "??").slice(0,2)}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: "var(--text)", fontSize: "0.9rem" }}>{req.name}</div>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--muted)" }}>{req.matric}</div>
+                      {req.email && <div style={{ fontFamily: "var(--mono)", fontSize: "0.63rem", color: "var(--gold)", marginTop: 2, opacity: 0.8 }}>📧 {req.email}</div>}
+                      <div style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--muted)", marginTop: 2 }}>Requested: {req.date}</div>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <button onClick={() => onApprove(req.matric)} style={{ background: "rgba(0,255,136,0.1)", border: "1px solid rgba(0,255,136,0.25)", borderRadius: 8, padding: "7px 14px", fontFamily: "var(--mono)", fontSize: "0.7rem", color: "#00ff88", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>✓ Approve</button>
-                    <button onClick={() => onReject(req.matric)} style={{ background: "rgba(255,80,80,0.1)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: 8, padding: "7px 14px", fontFamily: "var(--mono)", fontSize: "0.7rem", color: "#ff8080", cursor: "pointer", fontWeight: 700, whiteSpace: "nowrap" }}>✕ Reject</button>
+                  {/* Role selection row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "0.75rem", flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--muted)" }}>Assign Role:</span>
+                    <select
+                      style={roleSelectStyle}
+                      value={pendingRoles[req.matric] || profiles[req.matric]?.role || ""}
+                      onChange={e => setPendingRoles(prev => ({ ...prev, [req.matric]: e.target.value }))}
+                    >
+                      <option value="">— Select Role —</option>
+                      {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    {(pendingRoles[req.matric] || profiles[req.matric]?.role) && (
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "#00ff88", background: "rgba(0,255,136,0.1)", padding: "3px 8px", borderRadius: 4 }}>
+                        {pendingRoles[req.matric] || profiles[req.matric]?.role}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => {
+                      const role = pendingRoles[req.matric] || profiles[req.matric]?.role || "";
+                      onApprove(req.matric, role);
+                    }} style={{ flex: 1, background: "rgba(0,255,136,0.1)", border: "1px solid rgba(0,255,136,0.25)", borderRadius: 8, padding: "8px 14px", fontFamily: "var(--mono)", fontSize: "0.7rem", color: "#00ff88", cursor: "pointer", fontWeight: 700 }}>✓ Approve</button>
+                    <button onClick={() => onReject(req.matric)} style={{ flex: 1, background: "rgba(255,80,80,0.1)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: 8, padding: "8px 14px", fontFamily: "var(--mono)", fontSize: "0.7rem", color: "#ff8080", cursor: "pointer", fontWeight: 700 }}>✕ Reject</button>
+                    <button onClick={() => onOpenIDCard({
+                      name: req.name, matric: req.matric,
+                      role: pendingRoles[req.matric] || profiles[req.matric]?.role || "",
+                      email: req.email || "", photo: profiles[req.matric]?.photoUrl || "",
+                    })} style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.25)", borderRadius: 8, padding: "8px 12px", fontFamily: "var(--mono)", fontSize: "0.7rem", color: "var(--gold)", cursor: "pointer", fontWeight: 700 }}>🪪</button>
                   </div>
                 </div>
               ))}
@@ -535,8 +1126,18 @@ function AdminPanel({ cardRequests, onApprove, onReject, onClose, profiles }) {
                         <div style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.85rem" }}>{req.name}</div>
                         <div style={{ fontFamily: "var(--mono)", fontSize: "0.63rem", color: "var(--muted)" }}>{req.matric}</div>
                         {req.email && <div style={{ fontFamily: "var(--mono)", fontSize: "0.6rem", color: "var(--muted)", marginTop: 1 }}>{req.email}</div>}
+                        {(profiles[req.matric]?.role || req.role) && <div style={{ fontFamily: "var(--mono)", fontSize: "0.6rem", color: "#00ff88", marginTop: 2 }}>{profiles[req.matric]?.role || req.role}</div>}
                       </div>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: "0.68rem", color: req.status === "approved" ? "#00ff88" : "#ff8080", fontWeight: 700 }}>{req.status === "approved" ? "✓ Approved" : "✕ Rejected"}</span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                        <span style={{ fontFamily: "var(--mono)", fontSize: "0.68rem", color: req.status === "approved" ? "#00ff88" : "#ff8080", fontWeight: 700 }}>{req.status === "approved" ? "✓ Approved" : "✕ Rejected"}</span>
+                        {req.status === "approved" && (
+                          <button onClick={() => onOpenIDCard({
+                            name: req.name, matric: req.matric,
+                            role: profiles[req.matric]?.role || req.role || "",
+                            email: req.email || "", photo: profiles[req.matric]?.photoUrl || "",
+                          })} style={{ background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.2)", borderRadius: 6, padding: "4px 10px", fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--gold)", cursor: "pointer" }}>🪪 View Card</button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </>
@@ -547,34 +1148,58 @@ function AdminPanel({ cardRequests, onApprove, onReject, onClose, profiles }) {
           {/* MEMBERS TAB */}
           {activeTab === "members" && (
             <div>
-              <div style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--gold)", letterSpacing: "0.15em", marginBottom: "1rem" }}>// ALL MEMBERS ({STUDENTS_BASE.length})</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: "0.65rem", color: "var(--gold)", letterSpacing: "0.15em", marginBottom: "1rem" }}>// ALL MEMBERS ({allMembers.length})</div>
               <div style={{ position: "relative", marginBottom: "1.25rem" }}>
-                <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search by name or matric..." style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "11px 14px 11px 40px", fontFamily: "var(--mono)", fontSize: "0.8rem", color: "var(--text)", outline: "none", boxSizing: "border-box" }} />
+                <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search by name or matric..."
+                  style={{ width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "11px 14px 11px 40px", fontFamily: "var(--mono)", fontSize: "0.8rem", color: "var(--text)", outline: "none", boxSizing: "border-box" }} />
                 <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", fontSize: "0.85rem" }}>🔍</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                {filteredStudents.map((s, i) => {
+                {filteredStudents.map((s) => {
                   const p = profiles[s.matric] || {};
                   const photo = p.photoUrl || s.photo;
                   const displayInitials = (p.initials || s.initials || "??").slice(0, 2);
                   const cardReq = cardRequests.find(r => r.matric === s.matric);
+                  const currentRole = memberRoles[s.matric] ?? (p.role || "");
                   return (
-                    <div key={s.matric} style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "0.875rem 1rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, transition: "border-color 0.2s" }}>
-                      <div style={{ width: 38, height: 38, borderRadius: 8, background: s.isAdmin ? "linear-gradient(135deg,rgba(245,166,35,0.3),rgba(245,166,35,0.1))" : "linear-gradient(135deg, var(--green), var(--green-mid))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--mono)", fontSize: "0.75rem", fontWeight: 700, color: s.isAdmin ? "var(--gold)" : "var(--text)", flexShrink: 0, overflow: "hidden", border: s.isAdmin ? "1px solid rgba(245,166,35,0.4)" : "none" }}>
-                        {photo ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : displayInitials}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 6 }}>
-                          {p.displayName || s.name}
-                          {s.isAdmin && <span style={{ background: "rgba(245,166,35,0.15)", color: "var(--gold)", borderRadius: 4, padding: "1px 6px", fontSize: "0.6rem", fontFamily: "var(--mono)" }}>⚡ ADMIN</span>}
+                    <div key={s.matric} style={{ padding: "0.875rem 1rem", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, transition: "border-color 0.2s" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.875rem", marginBottom: 8 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: 8, background: s.isAdmin ? "linear-gradient(135deg,rgba(245,166,35,0.3),rgba(245,166,35,0.1))" : "linear-gradient(135deg, var(--green), var(--green-mid))", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--mono)", fontSize: "0.75rem", fontWeight: 700, color: s.isAdmin ? "var(--gold)" : "var(--text)", flexShrink: 0, overflow: "hidden", border: s.isAdmin ? "1px solid rgba(245,166,35,0.4)" : "none" }}>
+                          {photo ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : displayInitials}
                         </div>
-                        <div style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--muted)" }}>{s.matric}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 6 }}>
+                            {p.displayName || s.name}
+                            {s.isAdmin && <span style={{ background: "rgba(245,166,35,0.15)", color: "var(--gold)", borderRadius: 4, padding: "1px 6px", fontSize: "0.6rem", fontFamily: "var(--mono)" }}>⚡ ADMIN</span>}
+                            {s.isRegistered && <span style={{ background: "rgba(0,229,255,0.1)", color: "#00e5ff", borderRadius: 4, padding: "1px 6px", fontSize: "0.6rem", fontFamily: "var(--mono)" }}>NEW</span>}
+                          </div>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--muted)" }}>{s.matric}</div>
+                        </div>
+                        {cardReq && (
+                          <span style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", padding: "3px 8px", borderRadius: 4, background: cardReq.status === "approved" ? "rgba(0,255,136,0.1)" : cardReq.status === "pending" ? "rgba(245,166,35,0.1)" : "rgba(255,80,80,0.1)", color: cardReq.status === "approved" ? "#00ff88" : cardReq.status === "pending" ? "var(--gold)" : "#ff8080", border: `1px solid ${cardReq.status === "approved" ? "rgba(0,255,136,0.2)" : cardReq.status === "pending" ? "rgba(245,166,35,0.2)" : "rgba(255,80,80,0.2)"}` }}>
+                            {cardReq.status === "approved" ? "✓ Card" : cardReq.status === "pending" ? "⏳ Pending" : "✕ Rejected"}
+                          </span>
+                        )}
                       </div>
-                      {cardReq && (
-                        <span style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", padding: "3px 8px", borderRadius: 4, background: cardReq.status === "approved" ? "rgba(0,255,136,0.1)" : cardReq.status === "pending" ? "rgba(245,166,35,0.1)" : "rgba(255,80,80,0.1)", color: cardReq.status === "approved" ? "#00ff88" : cardReq.status === "pending" ? "var(--gold)" : "#ff8080", border: `1px solid ${cardReq.status === "approved" ? "rgba(0,255,136,0.2)" : cardReq.status === "pending" ? "rgba(245,166,35,0.2)" : "rgba(255,80,80,0.2)"}` }}>
-                          {cardReq.status === "approved" ? "✓ Card" : cardReq.status === "pending" ? "⏳ Pending" : "✕ Rejected"}
-                        </span>
-                      )}
+                      {/* Inline role assignment */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontFamily: "var(--mono)", fontSize: "0.62rem", color: "var(--muted)" }}>Role:</span>
+                        <select
+                          style={{ ...roleSelectStyle, flex: 1 }}
+                          value={currentRole}
+                          onChange={e => {
+                            const role = e.target.value;
+                            setMemberRoles(prev => ({ ...prev, [s.matric]: role }));
+                          }}
+                        >
+                          <option value="">— Unassigned —</option>
+                          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                        <button onClick={() => {
+                          const role = memberRoles[s.matric] ?? (p.role || "");
+                          onSetRole(s.matric, role);
+                        }} style={{ background: "rgba(0,255,136,0.08)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: 7, padding: "5px 12px", fontFamily: "var(--mono)", fontSize: "0.65rem", color: "#00ff88", cursor: "pointer" }}>Save</button>
+                      </div>
                     </div>
                   );
                 })}
@@ -607,16 +1232,16 @@ function CourseCard({ course, index }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: hovered ? `linear-gradient(135deg, ${style.bg} 0%, #0d1117 100%)` : "#0d1117",
-        border: `1px solid ${hovered ? style.accent : "rgba(255,255,255,0.06)"}`,
-        boxShadow: hovered ? `0 0 30px ${style.accent}22` : "none",
-        animationDelay: `${index * 60}ms`,
+        background: hovered ? style.bg : "var(--surface)",
+        border: `1px solid ${hovered ? style.accent + "40" : "var(--border)"}`,
+        animationDelay: `${index * 0.05}s`,
+        transition: "all 0.25s ease",
       }}>
       <div className="course-top">
-        <span className="course-code" style={{ color: style.accent, borderColor: `${style.accent}44` }}>{course.code}</span>
-        <span className="course-units" style={{ color: style.accent }}>{course.units} unit{course.units !== 1 ? "s" : ""}</span>
+        <span className="course-code" style={{ color: style.accent, borderColor: style.accent + "40" }}>{course.code}</span>
+        <span className="course-units" style={{ color: style.accent }}>{course.units}u</span>
       </div>
-      <h3 className="course-title">{course.title}</h3>
+      <p className="course-title">{course.title}</p>
       <div className="course-meta">
         <span className="meta-chip">L-T-P: {course.ltp}</span>
         {course.prereq && <span className="meta-chip prereq">Pre: {course.prereq}</span>}
@@ -627,15 +1252,17 @@ function CourseCard({ course, index }) {
 
 /* ─────────────────────────── MAIN APP ─────────────────────────── */
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [profiles, setProfiles] = useState(loadProfiles());
-  const [cardRequests, setCardRequests] = useState(loadCardRequests());
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const [activeFilter, setActiveFilter] = useState("all");
+  const [user, setUser]                   = useState(null);
+  const [profiles, setProfiles]           = useState(loadProfiles());
+  const [cardRequests, setCardRequests]   = useState(loadCardRequests());
+  const [menuOpen, setMenuOpen]           = useState(false);
+  const [scrolled, setScrolled]           = useState(false);
+  const [activeFilter, setActiveFilter]   = useState("all");
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
+  const [showProfile, setShowProfile]     = useState(false);
+  const [showAdmin, setShowAdmin]         = useState(false);
+  const [showIDCard, setShowIDCard]       = useState(false);
+  const [idCardData, setIdCardData]       = useState(null);
 
   useEffect(() => {
     const saved = sessionStorage.getItem("devcore_user");
@@ -663,10 +1290,15 @@ export default function App() {
     const newProfiles = { ...profiles, [user.matric]: { ...profiles[user.matric], ...updates } };
     setProfiles(newProfiles);
     saveProfiles(newProfiles);
-    // update session user display
     const updatedUser = { ...user, name: updates.displayName || user.name, initials: updates.initials || user.initials, photo: updates.photoUrl || user.photo };
     sessionStorage.setItem("devcore_user", JSON.stringify(updatedUser));
     setUser(updatedUser);
+  };
+
+  const handleSavePassword = (newPwd) => {
+    const newProfiles = { ...profiles, [user.matric]: { ...profiles[user.matric], password: newPwd } };
+    setProfiles(newProfiles);
+    saveProfiles(newProfiles);
   };
 
   const handleRequestCard = (matric, name, initials, email) => {
@@ -676,16 +1308,37 @@ export default function App() {
     saveCardRequests(updated);
   };
 
-  const handleApprove = (matric) => {
-    const updated = cardRequests.map(r => r.matric === matric ? { ...r, status: "approved" } : r);
+  const handleApprove = (matric, role) => {
+    const updated = cardRequests.map(r => r.matric === matric ? { ...r, status: "approved", role: role || r.role || "" } : r);
     setCardRequests(updated);
     saveCardRequests(updated);
+    // Also save role to profiles
+    if (role) {
+      const newProfiles = { ...profiles, [matric]: { ...(profiles[matric] || {}), role } };
+      setProfiles(newProfiles);
+      saveProfiles(newProfiles);
+    }
   };
 
   const handleReject = (matric) => {
     const updated = cardRequests.map(r => r.matric === matric ? { ...r, status: "rejected" } : r);
     setCardRequests(updated);
     saveCardRequests(updated);
+  };
+
+  const handleSetRole = (matric, role) => {
+    const newProfiles = { ...profiles, [matric]: { ...(profiles[matric] || {}), role } };
+    setProfiles(newProfiles);
+    saveProfiles(newProfiles);
+    // Also update any card request with this matric
+    const updated = cardRequests.map(r => r.matric === matric ? { ...r, role } : r);
+    setCardRequests(updated);
+    saveCardRequests(updated);
+  };
+
+  const handleOpenIDCard = (data) => {
+    setIdCardData(data);
+    setShowIDCard(true);
   };
 
   const scrollTo = (id) => {
@@ -696,7 +1349,6 @@ export default function App() {
   const filteredCourses = activeFilter === "all" ? RAIN_COURSES : RAIN_COURSES.filter(c => c.group === activeFilter);
   const totalUnits = RAIN_COURSES.reduce((s, c) => s + c.units, 0);
 
-  // Merge base data with profile overrides
   const getDisplayUser = () => {
     if (!user) return user;
     const p = profiles[user.matric] || {};
@@ -813,9 +1465,11 @@ export default function App() {
             user={user}
             profiles={profiles}
             onSave={handleSaveProfile}
+            onSavePassword={handleSavePassword}
             onClose={() => setShowProfile(false)}
             cardRequests={cardRequests}
             onRequestCard={handleRequestCard}
+            onOpenIDCard={(data) => { setShowProfile(false); handleOpenIDCard(data); }}
           />
         )}
 
@@ -826,6 +1480,15 @@ export default function App() {
             onReject={handleReject}
             onClose={() => setShowAdmin(false)}
             profiles={profiles}
+            onSetRole={handleSetRole}
+            onOpenIDCard={handleOpenIDCard}
+          />
+        )}
+
+        {showIDCard && idCardData && (
+          <IDCardModal
+            cardData={idCardData}
+            onClose={() => { setShowIDCard(false); setIdCardData(null); }}
           />
         )}
 
@@ -1098,140 +1761,136 @@ function GlobalStyles() {
       .field-eye:hover { color: var(--text); }
       .login-error { display: flex; align-items: center; gap: 7px; background: rgba(255,80,80,0.1); border: 1px solid rgba(255,80,80,0.2); border-radius: 8px; padding: 10px 14px; font-family: var(--mono); font-size: 0.75rem; color: #ff8080; margin-bottom: 1rem; }
       .login-btn { width: 100%; padding: 14px; background: var(--gold); color: #080c10; border: none; border-radius: 10px; font-family: var(--mono); font-size: 0.85rem; font-weight: 700; cursor: pointer; letter-spacing: 0.05em; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 1.25rem; }
-      .login-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,166,35,0.35); }
-      .login-btn.loading { opacity: 0.7; cursor: not-allowed; }
-      .login-spinner { width: 14px; height: 14px; border: 2px solid rgba(8,12,16,0.3); border-top-color: #080c10; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
+      .login-btn:hover:not(:disabled) { background: #e8960f; transform: translateY(-1px); box-shadow: 0 8px 20px rgba(245,166,35,0.25); }
+      .login-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+      .login-btn.loading { background: rgba(245,166,35,0.6); }
+      .login-hint { font-family: var(--mono); font-size: 0.7rem; color: rgba(232,237,242,0.3); text-align: center; }
+      .login-hint strong { color: rgba(232,237,242,0.5); }
+      .login-spinner { width: 14px; height: 14px; border: 2px solid rgba(8,12,16,0.3); border-top-color: #080c10; border-radius: 50%; display: inline-block; animation: spin 0.7s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
-      .login-hint { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); text-align: center; line-height: 1.6; }
-      .login-hint strong { color: var(--gold); }
 
       /* NAV */
-      .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 0 2rem; height: 64px; display: flex; align-items: center; justify-content: space-between; transition: background 0.3s, border-color 0.3s; border-bottom: 1px solid transparent; }
-      .nav.scrolled { background: rgba(8,12,16,0.92); backdrop-filter: blur(20px); border-color: var(--border); }
-      .nav-brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); cursor: pointer; }
-      .nav-logo { width: 34px; height: 34px; border-radius: 8px; background: linear-gradient(135deg, #1a4731, #2d7a4f); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.7rem; color: var(--gold); border: 1px solid var(--border); }
-      .nav-links { display: flex; align-items: center; gap: 2rem; list-style: none; }
-      .nav-links button { background: none; border: none; cursor: pointer; font-family: var(--sans); font-size: 0.85rem; color: var(--muted); transition: color 0.2s; }
-      .nav-links button:hover { color: var(--gold); }
-      .nav-user { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 5px 14px 5px 5px; cursor: pointer; transition: border-color 0.2s; }
-      .nav-user:hover { border-color: rgba(255,255,255,0.15); }
-      .nav-avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--green), var(--green-mid)); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.65rem; font-weight: 700; color: var(--gold); flex-shrink: 0; overflow: hidden; }
+      .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; display: flex; align-items: center; gap: 2rem; padding: 0 2rem; height: 64px; transition: all 0.3s ease; }
+      .nav.scrolled { background: rgba(8,12,16,0.92); border-bottom: 1px solid var(--border); backdrop-filter: blur(20px); }
+      .nav-brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-weight: 700; font-size: 0.95rem; color: var(--text); cursor: pointer; letter-spacing: 0.05em; }
+      .nav-logo { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #1a4731, #2d7a4f); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.72rem; font-weight: 700; color: var(--gold); border: 1px solid rgba(0,255,136,0.15); flex-shrink: 0; overflow: hidden; }
+      .nav-links { display: flex; list-style: none; gap: 0; margin-left: auto; }
+      @media (max-width: 768px) { .nav-links { display: none; } }
+      .nav-links li button { background: none; border: none; cursor: pointer; font-family: var(--sans); font-size: 0.85rem; color: var(--muted); padding: 8px 14px; border-radius: 8px; transition: all 0.2s; }
+      .nav-links li button:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+      .nav-right { margin-left: auto; }
+      @media (min-width: 769px) { .nav-right { margin-left: 0; } }
+      .nav-user { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 12px; border-radius: 10px; border: 1px solid var(--border); transition: all 0.2s; background: rgba(255,255,255,0.02); }
+      .nav-user:hover { border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); }
+      .nav-avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, var(--green), var(--green-mid)); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.6rem; font-weight: 700; color: var(--text); flex-shrink: 0; overflow: hidden; }
       .nav-user-info { display: flex; flex-direction: column; }
-      .nav-user-name { font-size: 0.8rem; font-weight: 600; color: var(--text); line-height: 1.2; }
-      .nav-user-matric { font-family: var(--mono); font-size: 0.6rem; color: var(--muted); }
-      .nav-logout-btn { background: none; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; color: var(--muted); padding: 7px 10px; display: flex; align-items: center; transition: all 0.2s; }
-      .nav-logout-btn:hover { border-color: rgba(255,80,80,0.3); color: #ff8080; }
-      .admin-nav-btn { background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.25); border-radius: 8px; cursor: pointer; color: var(--gold); padding: 7px 14px; font-family: var(--mono); font-size: 0.72rem; font-weight: 700; transition: all 0.2s; display: flex; align-items: center; gap: 6px; position: relative; }
-      .admin-nav-btn:hover { background: rgba(245,166,35,0.2); }
-      .admin-badge { background: #ff4444; color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 0.6rem; display: flex; align-items: center; justify-content: center; font-weight: 700; }
-      .nav-burger { display: none; background: none; border: none; cursor: pointer; color: var(--text); }
-      @media (max-width: 900px) { .nav-links { display: none; } }
-      @media (max-width: 650px) { .nav-right { display: none !important; } .nav-burger { display: flex; } }
-      .mobile-menu { position: fixed; inset: 64px 0 0 0; background: rgba(8,12,16,0.97); z-index: 99; display: flex; flex-direction: column; padding: 2rem; gap: 0.75rem; }
-      .mobile-user { display: flex; align-items: center; gap: 12px; padding-bottom: 1rem; border-bottom: 1px solid var(--border); margin-bottom: 0.5rem; }
-      .mobile-menu button { background: none; border: none; cursor: pointer; font-family: var(--sans); font-size: 1.1rem; color: var(--muted); text-align: left; padding: 0.4rem 0; transition: color 0.2s; }
-      .mobile-menu button:hover { color: var(--gold); }
+      .nav-user-name { font-size: 0.82rem; font-weight: 600; color: var(--text); line-height: 1.2; }
+      .nav-user-matric { font-family: var(--mono); font-size: 0.58rem; color: var(--muted); }
+      @media (max-width: 900px) { .nav-user-info { display: none; } }
+      .nav-logout-btn { background: rgba(255,80,80,0.08); border: 1px solid rgba(255,80,80,0.15); border-radius: 8px; padding: 7px 10px; cursor: pointer; color: #ff8080; display: flex; align-items: center; transition: all 0.2s; }
+      .nav-logout-btn:hover { background: rgba(255,80,80,0.15); }
+      .admin-nav-btn { background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.25); border-radius: 8px; padding: 7px 14px; font-family: var(--mono); font-size: 0.72rem; color: var(--gold); cursor: pointer; font-weight: 700; transition: all 0.2s; display: flex; align-items: center; gap: 6px; position: relative; }
+      .admin-nav-btn:hover { background: rgba(245,166,35,0.15); }
+      .admin-badge { background: #f5a623; color: #080c10; border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; }
+      .nav-burger { display: none; background: none; border: none; cursor: pointer; color: var(--text); padding: 8px; border-radius: 8px; }
+      @media (max-width: 768px) { .nav-burger { display: flex; } }
+      .mobile-menu { position: fixed; top: 64px; left: 0; right: 0; background: rgba(8,12,16,0.97); border-bottom: 1px solid var(--border); backdrop-filter: blur(20px); z-index: 99; padding: 1.25rem 1.5rem; display: flex; flex-direction: column; gap: 4px; animation: menuIn 0.2s ease; }
+      @keyframes menuIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+      .mobile-menu button { background: none; border: none; cursor: pointer; text-align: left; font-family: var(--sans); font-size: 0.9rem; color: var(--muted); padding: 10px 12px; border-radius: 8px; transition: all 0.2s; }
+      .mobile-menu button:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+      .mobile-user { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 8px; border-bottom: 1px solid var(--border); }
 
-      /* MODAL */
-      .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(10px); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 2rem; }
-      .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; max-width: 360px; width: 100%; box-shadow: 0 40px 80px rgba(0,0,0,0.5); }
-      .modal-title { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); margin-bottom: 0.5rem; }
-      .modal-desc { font-size: 0.85rem; color: var(--muted); margin-bottom: 1.5rem; line-height: 1.6; }
-      .modal-actions { display: flex; gap: 0.75rem; }
-      .modal-cancel { flex: 1; padding: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; font-family: var(--mono); font-size: 0.8rem; color: var(--muted); cursor: pointer; transition: all 0.2s; }
+      /* MODALS */
+      .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(8px); z-index: 150; display: flex; align-items: center; justify-content: center; padding: 1rem; animation: fadeIn 0.2s ease; }
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; max-width: 400px; width: 100%; }
+      .modal-title { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); margin-bottom: 0.75rem; }
+      .modal-desc { font-size: 0.85rem; color: var(--muted); line-height: 1.6; margin-bottom: 1.5rem; }
+      .modal-actions { display: flex; gap: 10px; }
+      .modal-cancel { flex: 1; padding: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; font-family: var(--mono); font-size: 0.8rem; color: var(--muted); cursor: pointer; transition: all 0.2s; }
       .modal-cancel:hover { border-color: rgba(255,255,255,0.15); color: var(--text); }
-      .modal-confirm { flex: 1; padding: 11px; background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.25); border-radius: 8px; font-family: var(--mono); font-size: 0.8rem; color: #ff8080; cursor: pointer; transition: all 0.2s; font-weight: 700; }
-      .modal-confirm:hover { background: rgba(255,80,80,0.25); }
-      .modal-close-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; padding: 4px 8px; border-radius: 6px; transition: all 0.2s; }
-      .modal-close-btn:hover { color: var(--text); background: var(--surface2); }
+      .modal-confirm { flex: 1; padding: 11px; background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.25); border-radius: 10px; font-family: var(--mono); font-size: 0.8rem; color: #ff8080; cursor: pointer; font-weight: 700; transition: all 0.2s; }
+      .modal-confirm:hover { background: rgba(255,80,80,0.2); }
 
       /* PROFILE MODAL */
-      .profile-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 2rem; max-width: 480px; width: 100%; box-shadow: 0 40px 100px rgba(0,0,0,0.6); max-height: 90vh; overflow-y: auto; }
-      .profile-modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; }
-      .profile-modal-title { font-family: var(--mono); font-weight: 700; font-size: 1.2rem; color: var(--text); }
-      .profile-avatar-section { display: flex; align-items: center; gap: 1.5rem; margin-bottom: 1.5rem; padding: 1.25rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; }
-      .profile-avatar-large { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, var(--green), var(--green-mid)); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 1.4rem; font-weight: 700; color: var(--gold); flex-shrink: 0; overflow: hidden; border: 2px solid var(--border); }
-      .profile-avatar-actions { flex: 1; }
-      .profile-upload-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; font-family: var(--mono); font-size: 0.72rem; color: var(--text); cursor: pointer; transition: all 0.2s; display: inline-block; }
-      .profile-upload-btn:hover { border-color: var(--gold); color: var(--gold); }
-      .profile-remove-btn { background: none; border: none; cursor: pointer; font-family: var(--mono); font-size: 0.68rem; color: #ff8080; margin-top: 6px; display: block; padding: 0; }
-      .profile-fields { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.25rem; }
-      .card-request-section { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; }
-      .card-section-title { font-family: var(--mono); font-size: 0.8rem; font-weight: 700; color: var(--text); margin-bottom: 0.75rem; }
-      .card-request-btn { width: 100%; padding: 12px; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.2); border-radius: 10px; font-family: var(--mono); font-size: 0.8rem; color: var(--green-bright); cursor: pointer; transition: all 0.2s; font-weight: 700; }
-      .card-request-btn:hover { background: rgba(0,255,136,0.18); border-color: rgba(0,255,136,0.4); }
-      .card-status { font-family: var(--mono); font-size: 0.78rem; padding: 10px 14px; border-radius: 8px; line-height: 1.5; }
-      .card-status-pending { background: rgba(245,166,35,0.1); color: var(--gold); border: 1px solid rgba(245,166,35,0.2); }
-      .card-status-approved { background: rgba(0,255,136,0.1); color: var(--green-bright); border: 1px solid rgba(0,255,136,0.2); }
-      .card-status-rejected { background: rgba(255,80,80,0.1); color: #ff8080; border: 1px solid rgba(255,80,80,0.2); }
+      .profile-modal { background: var(--surface); border: 1px solid rgba(245,166,35,0.15); border-radius: 20px; padding: 2rem; width: min(520px, 96vw); max-height: 90vh; overflow-y: auto; }
+      .profile-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+      .profile-modal-title { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; color: var(--text); }
+      .modal-close-btn { background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); cursor: pointer; padding: 6px 10px; font-size: 0.85rem; transition: all 0.2s; }
+      .modal-close-btn:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+      .profile-avatar-section { display: flex; align-items: flex-start; gap: 1.25rem; margin-bottom: 1.5rem; padding: 1.25rem; background: var(--surface2); border-radius: 14px; border: 1px solid var(--border); }
+      .profile-avatar-large { width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(135deg, var(--green), var(--green-mid)); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 1.3rem; font-weight: 700; color: var(--text); flex-shrink: 0; overflow: hidden; border: 2px solid rgba(245,166,35,0.3); }
+      .profile-avatar-actions { flex: 1; display: flex; flex-direction: column; }
+      .profile-upload-btn { background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.25); border-radius: 8px; padding: 8px 14px; font-family: var(--mono); font-size: 0.72rem; color: var(--gold); cursor: pointer; transition: all 0.2s; text-align: center; }
+      .profile-upload-btn:hover { background: rgba(245,166,35,0.16); }
+      .profile-remove-btn { background: none; border: none; font-family: var(--mono); font-size: 0.68rem; color: rgba(255,80,80,0.6); cursor: pointer; padding: 4px 0; margin-top: 6px; }
+      .profile-fields { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.25rem; }
 
-      /* ADMIN PANEL */
-      .admin-panel { background: var(--surface); border: 1px solid rgba(245,166,35,0.2); border-radius: 20px; padding: 2rem; max-width: 560px; width: 100%; box-shadow: 0 40px 100px rgba(0,0,0,0.6), 0 0 40px rgba(245,166,35,0.05); max-height: 90vh; overflow-y: auto; }
-      .admin-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem; }
-      .admin-stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; text-align: center; }
-      .admin-stat span { display: block; font-family: var(--mono); font-size: 1.6rem; font-weight: 700; color: var(--gold); }
-      .admin-stat { font-size: 0.72rem; color: var(--muted); font-family: var(--mono); }
-      .admin-req-card { display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.75rem; }
-      .admin-req-avatar { width: 44px; height: 44px; border-radius: 10px; background: var(--gold-dim); color: var(--gold); display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 0.9rem; font-weight: 700; flex-shrink: 0; }
-      .admin-approve-btn { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.25); border-radius: 8px; padding: 8px 12px; font-family: var(--mono); font-size: 0.72rem; color: var(--green-bright); cursor: pointer; font-weight: 700; transition: all 0.2s; white-space: nowrap; }
-      .admin-approve-btn:hover { background: rgba(0,255,136,0.2); }
-      .admin-reject-btn { background: rgba(255,80,80,0.1); border: 1px solid rgba(255,80,80,0.25); border-radius: 8px; padding: 8px 12px; font-family: var(--mono); font-size: 0.72rem; color: #ff8080; cursor: pointer; font-weight: 700; transition: all 0.2s; white-space: nowrap; }
-      .admin-reject-btn:hover { background: rgba(255,80,80,0.2); }
-      .admin-hero-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(245,166,35,0.15); border: 1px solid rgba(245,166,35,0.3); padding: 5px 14px; border-radius: 100px; font-family: var(--mono); font-size: 0.68rem; color: var(--gold); letter-spacing: 0.1em; margin-bottom: 1rem; animation: pulse-gold 2s ease-in-out infinite; }
-      @keyframes pulse-gold { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,166,35,0.2); } 50% { box-shadow: 0 0 0 8px rgba(245,166,35,0); } }
+      /* CARD REQUEST */
+      .card-request-section { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 1.25rem; margin-bottom: 0; }
+      .card-section-title { font-family: var(--mono); font-size: 0.8rem; font-weight: 700; color: var(--text); margin-bottom: 1rem; }
+      .card-status { font-family: var(--mono); font-size: 0.75rem; padding: 10px 14px; border-radius: 10px; line-height: 1.5; }
+      .card-status-pending { background: rgba(245,166,35,0.08); border: 1px solid rgba(245,166,35,0.2); color: var(--gold); }
+      .card-status-approved { background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.2); color: #00ff88; }
+      .card-status-rejected { background: rgba(255,80,80,0.08); border: 1px solid rgba(255,80,80,0.2); color: #ff8080; }
+      .card-request-btn { width: 100%; padding: 12px; background: linear-gradient(135deg, var(--green), var(--green-mid)); border: none; border-radius: 10px; font-family: var(--mono); font-size: 0.8rem; font-weight: 700; color: var(--text); cursor: pointer; letter-spacing: 0.04em; transition: all 0.2s; }
+      .card-request-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
 
       /* HERO */
-      .hero { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 112px 2rem 4rem; position: relative; overflow: hidden; text-align: center; }
-      .hero-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(0,255,136,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,136,0.04) 1px, transparent 1px); background-size: 60px 60px; mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%); }
-      .hero-glow { position: absolute; width: 600px; height: 600px; border-radius: 50%; background: radial-gradient(ellipse, rgba(26,71,49,0.5) 0%, transparent 70%); top: 50%; left: 50%; transform: translate(-50%, -60%); pointer-events: none; }
-      .hero-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(26,71,49,0.4); border: 1px solid rgba(0,255,136,0.2); padding: 6px 16px; border-radius: 100px; font-family: var(--mono); font-size: 0.7rem; color: var(--green-bright); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 2rem; }
-      .hero-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green-bright); animation: pulse 1.5s ease-in-out infinite; }
-      @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
-      .hero-title { font-family: var(--mono); font-size: clamp(2.8rem, 8vw, 6rem); font-weight: 700; line-height: 0.95; color: var(--text); margin-bottom: 1.5rem; }
-      .hero-title .highlight { color: var(--gold); }
-      .hero-sub { font-size: 1.05rem; color: var(--muted); max-width: 520px; line-height: 1.75; margin-bottom: 1rem; }
-      .hero-welcome { font-size: 0.9rem; color: var(--green-bright); margin-bottom: 1.75rem; background: rgba(0,255,136,0.07); border: 1px solid rgba(0,255,136,0.15); padding: 8px 20px; border-radius: 100px; display: inline-block; }
-      .hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
-      .btn-primary { background: var(--gold); color: #080c10; border: none; padding: 14px 28px; border-radius: 8px; font-family: var(--mono); font-size: 0.8rem; font-weight: 700; cursor: pointer; letter-spacing: 0.05em; transition: all 0.2s; }
-      .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(245,166,35,0.3); }
-      .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 14px 28px; border-radius: 8px; font-family: var(--mono); font-size: 0.8rem; cursor: pointer; letter-spacing: 0.05em; transition: all 0.2s; }
-      .btn-ghost:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.04); }
-      .hero-stats { display: flex; gap: 2.5rem; margin-top: 4rem; flex-wrap: wrap; justify-content: center; }
+      .hero { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 8rem 2rem 4rem; position: relative; overflow: hidden; }
+      .hero-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px); background-size: 60px 60px; }
+      .hero-glow { position: absolute; width: 800px; height: 800px; border-radius: 50%; background: radial-gradient(ellipse, rgba(26,71,49,0.35) 0%, transparent 70%); top: 50%; left: 50%; transform: translate(-50%, -55%); pointer-events: none; }
+      .hero-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.18); border-radius: 100px; padding: 6px 16px; font-family: var(--mono); font-size: 0.72rem; color: var(--green-bright); letter-spacing: 0.08em; margin-bottom: 2rem; }
+      .hero-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green-bright); animation: pulse 2s ease-in-out infinite; }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+      .admin-hero-badge { position: absolute; top: 84px; right: 24px; background: rgba(245,166,35,0.15); border: 1px solid rgba(245,166,35,0.3); border-radius: 8px; padding: 6px 14px; font-family: var(--mono); font-size: 0.68rem; color: var(--gold); font-weight: 700; letter-spacing: 0.08em; }
+      .hero-title { font-family: var(--mono); font-size: clamp(3rem, 10vw, 7rem); font-weight: 700; color: var(--text); line-height: 0.95; letter-spacing: -0.03em; margin-bottom: 1.5rem; position: relative; }
+      .highlight { color: var(--gold); }
+      .hero-sub { font-size: clamp(0.9rem, 2vw, 1.05rem); color: var(--muted); max-width: 500px; line-height: 1.7; margin-bottom: 1.5rem; }
+      .hero-welcome { display: inline-block; background: rgba(245,166,35,0.06); border: 1px solid rgba(245,166,35,0.15); border-radius: 10px; padding: 10px 18px; font-family: var(--mono); font-size: 0.82rem; color: rgba(232,237,242,0.6); margin-bottom: 2rem; }
+      .hero-welcome strong { color: var(--gold); }
+      .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-bottom: 3.5rem; }
+      .btn-primary { padding: 13px 28px; background: var(--gold); color: #080c10; border: none; border-radius: 10px; font-family: var(--mono); font-size: 0.85rem; font-weight: 700; cursor: pointer; letter-spacing: 0.04em; transition: all 0.2s; }
+      .btn-primary:hover { background: #e8960f; transform: translateY(-2px); box-shadow: 0 12px 24px rgba(245,166,35,0.2); }
+      .btn-ghost { padding: 12px 24px; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; font-family: var(--mono); font-size: 0.82rem; cursor: pointer; letter-spacing: 0.04em; transition: all 0.2s; }
+      .btn-ghost:hover { border-color: rgba(255,255,255,0.18); color: var(--text); }
+      .hero-stats { display: flex; gap: 3rem; flex-wrap: wrap; justify-content: center; }
       .stat { text-align: center; }
-      .stat-num { font-family: var(--mono); font-size: 2rem; font-weight: 700; color: var(--gold); display: block; }
-      .stat-label { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
-      .hero-scroll { position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted); font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; animation: bounce 2s ease-in-out infinite; }
-      @keyframes bounce { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(6px); } }
-      @keyframes float-particle { 0% { transform: translateY(0px) translateX(0px); opacity: 0.2; } 100% { transform: translateY(-18px) translateX(8px); opacity: 0.5; } }
-      @keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-33.333%); } }
-
-      /* SHARED */
-      .section-wrap { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
-      .section-label { font-family: var(--mono); font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--gold); display: block; margin-bottom: 0.75rem; }
-      .section-title { font-family: var(--mono); font-size: clamp(1.6rem, 4vw, 2.6rem); font-weight: 700; line-height: 1.15; color: var(--text); }
-      .section-title .dim { color: var(--muted); }
+      .stat-num { display: block; font-family: var(--mono); font-size: 2rem; font-weight: 700; color: var(--gold); }
+      .stat-label { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+      .hero-scroll { position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.2em; color: rgba(255,255,255,0.2); animation: bounce 2s ease-in-out infinite; }
+      @keyframes bounce { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(6px)} }
+      @keyframes float-particle { 0% { transform: translateY(0px) translateX(0px); } 100% { transform: translateY(-20px) translateX(10px); } }
+      @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-33.333%); } }
 
       /* ABOUT */
-      .about-section { padding: 7rem 0; border-top: 1px solid var(--border); }
-      .about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: center; }
-      @media (max-width: 768px) { .about-grid { grid-template-columns: 1fr; gap: 3rem; } }
-      .about-text p { color: var(--muted); line-height: 1.8; margin-top: 1.5rem; }
-      .about-terminal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-      .terminal-bar { background: var(--surface2); padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
-      .t-dot { width: 10px; height: 10px; border-radius: 50%; }
-      .terminal-body { padding: 1.5rem; font-family: var(--mono); font-size: 0.8rem; line-height: 2; }
-      .t-green { color: var(--green-bright); } .t-gold { color: var(--gold); } .t-muted { color: var(--muted); }
-      .t-cursor { display: inline-block; width: 8px; height: 14px; background: var(--gold); vertical-align: middle; animation: blink 1s step-end infinite; }
-      @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+      .app { min-height: 100vh; }
+      .section-wrap { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+      .section-label { font-family: var(--mono); font-size: 0.72rem; color: var(--gold); letter-spacing: 0.15em; text-transform: uppercase; display: block; margin-bottom: 1rem; }
+      .section-title { font-family: var(--mono); font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 700; color: var(--text); line-height: 1.15; margin-bottom: 1.5rem; }
+      .dim { color: var(--muted); }
+      .about-section { padding: 8rem 0; border-top: 1px solid var(--border); }
+      .about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; }
+      @media (max-width: 768px) { .about-grid { grid-template-columns: 1fr; gap: 2.5rem; } }
+      .about-text p { color: var(--muted); line-height: 1.8; font-size: 0.95rem; margin-bottom: 1rem; }
+      .about-terminal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+      .terminal-bar { background: var(--surface2); padding: 10px 16px; display: flex; gap: 7px; align-items: center; border-bottom: 1px solid var(--border); }
+      .t-dot { width: 12px; height: 12px; border-radius: 50%; }
+      .terminal-body { padding: 1.5rem; font-family: var(--mono); font-size: 0.8rem; line-height: 1.9; }
+      .t-green { color: var(--green-bright); }
+      .t-gold { color: var(--gold); }
+      .t-muted { color: var(--muted); }
+      .t-cursor { display: inline-block; width: 8px; height: 14px; background: var(--green-bright); animation: blink 1s step-end infinite; vertical-align: text-bottom; }
+      @keyframes blink { 50% { opacity: 0; } }
 
       /* COURSES */
-      .courses-section { padding: 7rem 0; background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); position: relative; overflow: hidden; }
-      .courses-section::before { content: 'RAIN SEMESTER'; position: absolute; right: -2rem; top: 3rem; font-family: var(--mono); font-size: 5rem; font-weight: 700; color: rgba(255,255,255,0.025); white-space: nowrap; pointer-events: none; user-select: none; }
-      .courses-header { display: flex; flex-direction: column; gap: 2rem; margin-bottom: 3rem; }
-      .courses-meta { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; }
-      .courses-summary { background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.2); border-radius: 8px; padding: 10px 20px; font-family: var(--mono); font-size: 0.8rem; color: var(--gold); }
-      .filter-btns { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-      .filter-btn { background: none; border: 1px solid var(--border); padding: 7px 18px; border-radius: 100px; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); cursor: pointer; transition: all 0.2s; letter-spacing: 0.05em; }
+      .courses-section { padding: 7rem 0; border-top: 1px solid var(--border); }
+      .courses-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 2.5rem; }
+      .courses-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1rem; }
+      @media (max-width: 768px) { .courses-meta { align-items: flex-start; } }
+      .courses-summary { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+      .filter-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+      .filter-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 16px; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); cursor: pointer; transition: all 0.2s; }
       .filter-btn.active { background: var(--gold); color: #080c10; border-color: var(--gold); font-weight: 700; }
       .filter-btn:not(.active):hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
       .courses-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
